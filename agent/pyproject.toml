@@ -1,0 +1,14 @@
+[project]
+name = "agent"
+version = "0.1.0"
+description = "ORM Schema Watcher — Prisma → NestJS auto-sync with Agent cross-file analysis"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "langchain[openai]>=1.3.2",
+    "langgraph>=1.2.2",
+    "python-dotenv>=1.2.2",
+]
+
+[project.optional-dependencies]
+ollama = ["langchain-ollama>=1.0.0"]

@@ -1,0 +1,3 @@
+./nestjs-proj/dist/
+./nestjs-proj/node_modules/
+./agent/.env
