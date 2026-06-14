@@ -1,4 +1,4 @@
-# ORM Agent
+# ORM AI-Agent
 
 > **Change your schema. Run this agent. Move on.**  
 > DTOs regenerated. Business logic updated. Migration applied. Zero manual steps.
