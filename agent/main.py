@@ -49,7 +49,7 @@ from langgraph.types import Command
 load_dotenv()
 
 AGENT_DIR = pathlib.Path(__file__).resolve().parent
-NESTJS_PROJ_DIR = AGENT_DIR.parent / "nestjs-proj"
+NESTJS_PROJ_DIR = AGENT_DIR.parent / "demo-nestjs"
 SCHEMA_PATH = NESTJS_PROJ_DIR / "prisma" / "schema.prisma"
 PRODUCT_SRC = NESTJS_PROJ_DIR / "src" / "product"
 DTO_DIR = PRODUCT_SRC / "dto"
@@ -454,7 +454,7 @@ def _resolve_product_path(relative_path: str) -> pathlib.Path:
 @tool
 def search_in_product(query: str) -> str:
     """Search for a pattern (string literal or field name) across ALL files
-    under nestjs-proj/src/product/ (excluding node_modules).
+    under demo-nestjs/src/product/ (excluding node_modules).
 
     Returns matching file paths, line numbers, and the matching lines.
 
@@ -488,7 +488,7 @@ def search_in_product(query: str) -> str:
 
 @tool
 def read_product_file(relative_path: str) -> str:
-    """Read the full content of a file under nestjs-proj/src/product/.
+    """Read the full content of a file under demo-nestjs/src/product/.
 
     Example paths: 'product.service.ts', 'product.controller.ts',
                    'dto/create-product.dto.ts', 'product.module.ts'
@@ -506,7 +506,7 @@ def read_product_file(relative_path: str) -> str:
 
 @tool
 def write_product_file(relative_path: str, content: str) -> str:
-    """Write content to a file under nestjs-proj/src/product/.
+    """Write content to a file under demo-nestjs/src/product/.
 
     ⚠ IMPORTANT: Write the COMPLETE file content, not a diff.
     The tool overwrites the entire file.
@@ -808,7 +808,7 @@ def _init_all_tools():
 
     @tool
     def run_npm_script(script_name: str) -> str:
-        """Run an npm script in nestjs-proj/.
+        """Run an npm script in demo-nestjs/.
         Allowed: prisma:generate, prisma:migrate:dev, prisma:migrate:deploy, prisma:studio."""
         allowed = {"prisma:generate", "prisma:migrate:dev", "prisma:migrate:deploy", "prisma:studio"}
         if script_name not in allowed:
