@@ -51,7 +51,7 @@ export class ProductService {
   /** Find products with stock > 0.  References field: stock */
   async findInStock(): Promise<Product[]> {
     return this.prisma.product.findMany({
-      where: { stock: { gt: 0 } },
+      where: { quantity: { gt: 0 } },
     });
   }
 
@@ -60,7 +60,7 @@ export class ProductService {
     await this.findOne(id);
     return this.prisma.product.update({
       where: { id },
-      data: { stock: { increment: amount } },
+      data: { quantity: { increment: amount } },
     });
   }
 
