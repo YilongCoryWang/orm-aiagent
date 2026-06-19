@@ -35,26 +35,37 @@ import subprocess
 import signal
 import re
 import sys
-import pathlib
 from typing import Optional
 from langchain_openai import ChatOpenAI
-from langchain.tools import tool
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
+from tools import (
+    search_in_product,
+    read_product_file,
+    write_product_file,
+    detect_schema_changes,
+    read_prisma_schema,
+    sync_dto_with_schema,
+    run_npm_script,
+    CROSS_FILE_TOOLS,
+    ALL_TOOLS,
+)
+from tools._paths import (
+    AGENT_DIR,
+    NESTJS_PROJ_DIR,
+    SCHEMA_PATH,
+    PRODUCT_SRC,
+    DTO_DIR,
+    CACHE_DIR,
+)
+
 # ---------------------------------------------------------------------------
 # Bootstrap
 # ---------------------------------------------------------------------------
 load_dotenv()
-
-AGENT_DIR = pathlib.Path(__file__).resolve().parent
-NESTJS_PROJ_DIR = AGENT_DIR.parent / "demo-nestjs"
-SCHEMA_PATH = NESTJS_PROJ_DIR / "prisma" / "schema.prisma"
-PRODUCT_SRC = NESTJS_PROJ_DIR / "src" / "product"
-DTO_DIR = PRODUCT_SRC / "dto"
-CACHE_DIR = AGENT_DIR / ".schema_cache"
 
 
 def create_llm():
@@ -457,90 +468,6 @@ def run_prisma_command(cmd: list[str], label: str) -> tuple[bool, str]:
 #  are good at, and what scripts are bad at.
 # ===========================================================================
 
-# --- Cross-file tools ---
-
-def _resolve_product_path(relative_path: str) -> pathlib.Path:
-    """Resolve a path relative to src/product/."""
-    # Strip leading src/product/ if the agent included it
-    p = relative_path.replace("\\", "/")
-    for prefix in ["src/product/", "./", "/"]:
-        if p.startswith(prefix):
-            p = p[len(prefix):]
-    return (PRODUCT_SRC / p).resolve()
-
-
-@tool
-def search_in_product(query: str) -> str:
-    """Search for a pattern (string literal or field name) across ALL files
-    under demo-nestjs/src/product/ (excluding node_modules).
-
-    Returns matching file paths, line numbers, and the matching lines.
-
-    Use this to find ALL references to a changed field or model name before
-    deciding what to update.
-    """
-    try:
-        result = subprocess.run(
-            ["grep", "-rn", "--include=*.ts", query, str(PRODUCT_SRC)],
-            capture_output=True, text=True, timeout=10,
-        )
-        output = result.stdout.strip()
-        if not output:
-            return f"No matches found for '{query}' in src/product/"
-        return f"Matches for '{query}' in src/product/:\n\n{output}"
-    except FileNotFoundError:
-        # Fallback: manual search
-        results = []
-        for ts_file in PRODUCT_SRC.rglob("*.ts"):
-            try:
-                for i, line in enumerate(ts_file.read_text().splitlines(), 1):
-                    if query.lower() in line.lower():
-                        rel = ts_file.relative_to(NESTJS_PROJ_DIR)
-                        results.append(f"{rel}:{i}: {line.strip()}")
-            except Exception:
-                pass
-        if not results:
-            return f"No matches found for '{query}' in src/product/"
-        return f"Matches for '{query}' in src/product/:\n\n" + "\n".join(results)
-
-
-@tool
-def read_product_file(relative_path: str) -> str:
-    """Read the full content of a file under demo-nestjs/src/product/.
-
-    Example paths: 'product.service.ts', 'product.controller.ts',
-                   'dto/create-product.dto.ts', 'product.module.ts'
-
-    Use this AFTER search_in_product to read files that contain matches
-    and understand the surrounding context before making changes.
-    """
-    full = _resolve_product_path(relative_path)
-    if not str(full).startswith(str(NESTJS_PROJ_DIR.resolve())):
-        return f"❌ Path escapes project: {full}"
-    if not full.exists():
-        return f"❌ File not found: {full}  (tried: {relative_path})"
-    return full.read_text()
-
-
-@tool
-def write_product_file(relative_path: str, content: str) -> str:
-    """Write content to a file under demo-nestjs/src/product/.
-
-    ⚠ IMPORTANT: Write the COMPLETE file content, not a diff.
-    The tool overwrites the entire file.
-
-    Before calling this:
-    1. Call read_product_file to get the current content
-    2. Make your modifications
-    3. Call this tool with the FULL updated content
-    """
-    full = _resolve_product_path(relative_path)
-    if not str(full).startswith(str(NESTJS_PROJ_DIR.resolve())):
-        return f"❌ Refusing to write outside project: {full}"
-    full.parent.mkdir(parents=True, exist_ok=True)
-    full.write_text(content)
-    return f"✅ Wrote {len(content)} bytes to {full.relative_to(NESTJS_PROJ_DIR)}"
-
 # --- Cross-file agent system prompt ---
 
 CROSS_FILE_SYSTEM_PROMPT = """\
@@ -615,7 +542,7 @@ def run_cross_file_analysis(diff: str, cached_schema: str, current_schema: str) 
     # Build a structured summary of what changed
     change_summary = build_schema_diff_summary(cached_schema, current_schema)
 
-    cross_file_tools = [search_in_product, read_product_file, write_product_file]
+    cross_file_tools = CROSS_FILE_TOOLS
 
     cross_file_agent = create_agent(
         create_llm(),
@@ -779,77 +706,6 @@ def auto_sync_all() -> None:
 #  Interactive agent mode (--agent flag)
 # ===========================================================================
 
-# Unified tools for interactive mode — includes both schema + cross-file tools
-ALL_TOOLS = []
-
-def _init_all_tools():
-    """Lazily build the full tool list (needed because @tool decorator
-    creates new objects each call with unique names — we define them once)."""
-    global ALL_TOOLS
-    if ALL_TOOLS:
-        return ALL_TOOLS
-
-    # These are the same @tool functions defined above; we wrap the core
-    # helpers with @tool for the interactive agent.
-
-    @tool
-    def detect_schema_changes(_unused: str = "") -> str:
-        """Detect whether schema.prisma has changed. Call this FIRST."""
-        result = detect_changes()
-        return result or "✅ No changes detected."
-
-    @tool
-    def read_prisma_schema(_unused: str = "") -> str:
-        """Read & parse schema.prisma — returns structured model/field info."""
-        if not SCHEMA_PATH.exists():
-            return f"❌ Schema not found: {SCHEMA_PATH}"
-        models = parse_prisma_schema(SCHEMA_PATH.read_text())
-        if not models:
-            return "⚠ No models found."
-        lines = [f"📄 {SCHEMA_PATH}", ""]
-        for mn, fields in models.items():
-            lines.append(f"model {mn} {{")
-            for f in fields:
-                flags = []
-                if f["is_id"]:         flags.append("id")
-                if f["is_updated_at"]: flags.append("updatedAt")
-                if f["has_default"]:   flags.append("has_default")
-                opt = "?" if f["optional"] else ""
-                flag_str = f"  [{', '.join(flags)}]" if flags else ""
-                lines.append(f"  {f['name']}: {f['type']}{opt}{flag_str}")
-            lines.append("}")
-        return "\n".join(lines)
-
-    @tool
-    def sync_dto_with_schema(model_name: str) -> str:
-        """Regenerate CreateDto + UpdateDto for a Prisma model from the current
-        schema. This is the DETERMINISTIC sync — always prefer this for DTOs
-        over manually generating TypeScript."""
-        ok, msg = sync_dto_for_model(model_name)
-        return msg
-
-    @tool
-    def run_npm_script(script_name: str) -> str:
-        """Run an npm script in demo-nestjs/.
-        Allowed: prisma:generate, prisma:migrate:dev, prisma:migrate:deploy, prisma:studio."""
-        allowed = {"prisma:generate", "prisma:migrate:dev", "prisma:migrate:deploy", "prisma:studio"}
-        if script_name not in allowed:
-            return f"❌ Not allowed. Choices: {sorted(allowed)}"
-        ok, msg = run_prisma_command(["npm", "run", script_name], script_name)
-        return msg
-
-    ALL_TOOLS = [
-        detect_schema_changes,
-        read_prisma_schema,
-        sync_dto_with_schema,
-        run_npm_script,
-        search_in_product,       # cross-file
-        read_product_file,       # cross-file
-        write_product_file,      # cross-file
-    ]
-    return ALL_TOOLS
-
-
 INTERACTIVE_SYSTEM_PROMPT = """\
 You are an ORM Agent for a NestJS + Prisma project.
 
@@ -884,7 +740,7 @@ Be concise. Explain each change before making it.
 
 def run_agent_mode() -> None:
     """Interactive LangChain agent with HumanInTheLoopMiddleware."""
-    tools = _init_all_tools()
+    tools = ALL_TOOLS
 
     agent = create_agent(
         create_llm(), tools, system_prompt=INTERACTIVE_SYSTEM_PROMPT,
