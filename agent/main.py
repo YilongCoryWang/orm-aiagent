@@ -59,7 +59,6 @@ from tools._paths import (
     SCHEMA_PATH,
     PRODUCT_SRC,
     DTO_DIR,
-    CACHE_DIR,
 )
 
 # ---------------------------------------------------------------------------
@@ -257,69 +256,62 @@ def build_dto_class_body(model_name: str, fields: list[dict]) -> tuple[str, str]
 
 
 # ---------------------------------------------------------------------------
-# Change detection (deterministic)
+# Change detection (git-based)
 # ---------------------------------------------------------------------------
 
-def get_cached_schema() -> Optional[str]:
-    cache_file = CACHE_DIR / "schema_cache.txt"
-    if cache_file.exists():
-        return cache_file.read_text()
-    return None
+def _git_run(args: list[str]) -> Optional[str]:
+    """Run a git command in the nestjs project dir. Returns stdout or None."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(NESTJS_PROJ_DIR)] + args,
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            return result.stdout
+        return None
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
 
 
-def save_schema_cache(schema_text: str) -> None:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    (CACHE_DIR / "schema_cache.txt").write_text(schema_text)
+def _schema_rel_to_git_root() -> Optional[str]:
+    """Get schema.prisma path relative to git repo root."""
+    git_root = _git_run(["rev-parse", "--show-toplevel"])
+    if not git_root:
+        return None
+    try:
+        return str(SCHEMA_PATH.relative_to(git_root.strip()))
+    except ValueError:
+        return None
+
+
+def get_previous_schema() -> Optional[str]:
+    """Get schema.prisma content from the last git commit (HEAD)."""
+    rel = _schema_rel_to_git_root()
+    if not rel:
+        return None
+    return _git_run(["show", f"HEAD:{rel}"])
 
 
 def detect_changes() -> Optional[str]:
-    """Check if schema.prisma changed vs the cached snapshot.
+    """Check if schema.prisma changed vs the last git commit (HEAD).
 
-    Returns a diff summary string if changed, None if unchanged or first run.
+    Returns a diff string if changed, None if unchanged or git unavailable.
     """
     if not SCHEMA_PATH.exists():
         print(f"❌ Schema file not found: {SCHEMA_PATH}")
         return None
 
-    current = SCHEMA_PATH.read_text()
-    cached = get_cached_schema()
+    git_diff = _git_run(["diff", "HEAD", "--", str(SCHEMA_PATH)])
 
-    # if cached is None:
-    #     save_schema_cache(current)
-    #     print("📝 First run — schema cached as baseline. No changes to process.")
-    #     return None
+    if git_diff is None:
+        print("⚠ Git not available — cannot detect changes.")
+        return None
 
-    # if current == cached:
-    #     print("✅ No schema changes detected (cache comparison).")
-    #     return None
+    if not git_diff.strip():
+        print("✅ No schema changes detected (git diff HEAD).")
+        return None
 
-    diff_lines = ["--- cached schema", "+++ current schema"]
-    for line in cached.splitlines():
-        diff_lines.append(f"-{line}")
-    for line in current.splitlines():
-        diff_lines.append(f"+{line}")
-    diff_summary = "\n".join(diff_lines)
-
-    # Enrich with git diff if available
-    git_info = ""
-    try:
-        git_diff = subprocess.run(
-            ["git", "diff", "--", str(SCHEMA_PATH)],
-            capture_output=True, text=True, cwd=str(NESTJS_PROJ_DIR),
-        )
-        if git_diff.returncode == 0 and git_diff.stdout.strip():
-            git_info = f"\n\n[Git diff]\n{git_diff.stdout.strip()}"
-        else:
-            staged = subprocess.run(
-                ["git", "diff", "--cached", "--", str(SCHEMA_PATH)],
-                capture_output=True, text=True, cwd=str(NESTJS_PROJ_DIR),
-            )
-            if staged.returncode == 0 and staged.stdout.strip():
-                git_info = f"\n\n[Git diff --cached]\n{staged.stdout.strip()}"
-    except FileNotFoundError:
-        pass
-
-    return f"⚠ Schema changed vs cached baseline.\n\n{diff_summary}{git_info}"
+    return f"⚠ Schema changed vs HEAD.\n\n[Git diff]\n{git_diff.strip()}"
 
 
 def build_schema_diff_summary(cached: str, current: str) -> str:
@@ -640,8 +632,8 @@ def auto_sync_all() -> None:
     print(diff)
     print()
 
-    # Remember old schema before we update the cache
-    cached_schema = get_cached_schema() or ""
+    # Get previous schema from git HEAD for diff summary
+    cached_schema = get_previous_schema() or ""
     current_schema = SCHEMA_PATH.read_text()
 
     # Step 2: Parse schema and identify models
@@ -657,9 +649,6 @@ def auto_sync_all() -> None:
         ok, msg = sync_dto_for_model(model_name)
         print(msg)
         print()
-
-    # Update cache AFTER DTO sync succeeds
-    save_schema_cache(current_schema)
 
     # Step 4: Agent-based cross-file impact analysis
     print("-" * 60)

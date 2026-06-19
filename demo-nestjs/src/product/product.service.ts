@@ -48,22 +48,22 @@ export class ProductService {
 
   // ── Business-logic methods (reference individual schema fields) ──
   // These exist so the Agent has real code to analyse when the schema changes.
-  // If a field is renamed (e.g. quantity → stock), the Agent must find and
+  // If a field is renamed (e.g. stock → quantity), the Agent must find and
   // update every reference in these methods — that's the value of the LLM.
 
-  /** Find products with stock > 0.  References field: stock */
+  /** Find products with quantity > 0.  References field: quantity */
   async findInStock(): Promise<Product[]> {
     return this.prisma.product.findMany({
-      where: { stock: { gt: 0 } },
+      where: { quantity: { gt: 0 } },
     });
   }
 
-  /** Increment a product's stock.  References field: stock */
+  /** Increment a product's quantity.  References field: quantity */
   async restockProduct(id: number, amount: number): Promise<Product> {
     await this.findOne(id);
     return this.prisma.product.update({
       where: { id },
-      data: { stock: { increment: amount } },
+      data: { quantity: { increment: amount } },
     });
   }
 

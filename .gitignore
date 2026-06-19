@@ -1,3 +1,5 @@
-./demo-nestjs/dist/
-./demo-nestjs/node_modules/
-./agent/.env
+demo-nestjs/dist/
+demo-nestjs/node_modules/
+agent/.env
+agent/__pycache__/
+agent/tools/__pycache__/

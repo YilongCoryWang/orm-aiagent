@@ -6,7 +6,6 @@ NESTJS_PROJ_DIR = AGENT_DIR.parent / "demo-nestjs"
 SCHEMA_PATH = NESTJS_PROJ_DIR / "prisma" / "schema.prisma"
 PRODUCT_SRC = NESTJS_PROJ_DIR / "src" / "product"
 DTO_DIR = PRODUCT_SRC / "dto"
-CACHE_DIR = AGENT_DIR / ".schema_cache"
 
 
 def _resolve_product_path(relative_path: str) -> pathlib.Path:
