@@ -34,27 +34,16 @@ import os
 import subprocess
 import signal
 import re
-import sys
 from typing import Optional
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
-from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from tools import (
-    search_in_product,
-    read_product_file,
-    write_product_file,
-    detect_schema_changes,
-    read_prisma_schema,
-    sync_dto_with_schema,
-    run_npm_script,
     CROSS_FILE_TOOLS,
-    ALL_TOOLS,
 )
 from tools._paths import (
-    AGENT_DIR,
     NESTJS_PROJ_DIR,
     SCHEMA_PATH,
     PRODUCT_SRC,
@@ -92,8 +81,7 @@ def create_llm():
             from langchain_ollama import ChatOllama
         except ImportError:
             raise ImportError(
-                "langchain-ollama is not installed. "
-                "Run: pip install langchain-ollama"
+                "langchain-ollama is not installed. Run: pip install langchain-ollama"
             )
         return ChatOllama(
             model=os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
@@ -105,8 +93,7 @@ def create_llm():
     api_key = os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "DEEPSEEK_API_KEY not set. "
-            "Set it in .env or switch to LLM_PROVIDER=ollama."
+            "DEEPSEEK_API_KEY not set. Set it in .env or switch to LLM_PROVIDER=ollama."
         )
     return ChatOpenAI(
         model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
@@ -115,14 +102,15 @@ def create_llm():
         extra_body={"thinking": {"type": "disabled"}},
     )
 
+
 # ---------------------------------------------------------------------------
 # Prisma schema → class-validator decorator mapping
 # ---------------------------------------------------------------------------
 PRISMA_TYPE_MAP = {
-    "String":   ("IsString",     []),
-    "Int":      ("IsInt",        []),
-    "Float":    ("IsNumber",     ["Type(() => Number)"]),
-    "Boolean":  ("IsBoolean",    ["Type(() => Boolean)"]),
+    "String": ("IsString", []),
+    "Int": ("IsInt", []),
+    "Float": ("IsNumber", ["Type(() => Number)"]),
+    "Boolean": ("IsBoolean", ["Type(() => Boolean)"]),
     "DateTime": ("IsDateString", []),
 }
 
@@ -134,6 +122,7 @@ def _has_attr(attributes: str, name: str) -> bool:
 # ---------------------------------------------------------------------------
 # Schema parser
 # ---------------------------------------------------------------------------
+
 
 def parse_prisma_schema(schema_text: str) -> dict[str, list[dict]]:
     """Parse a Prisma schema string → {model_name: [field_dict, ...]}.
@@ -165,29 +154,35 @@ def parse_prisma_schema(schema_text: str) -> dict[str, list[dict]]:
 
             name, ftype, optional, attrs = fm.groups()
             attrs = (attrs or "").strip()
-            models[current_model].append({
-                "name":          name,
-                "type":          ftype,
-                "optional":      bool(optional),
-                "attributes":    attrs,
-                "is_id":         _has_attr(attrs, "id"),
-                "is_updated_at": _has_attr(attrs, "updatedAt"),
-                "has_default":   _has_attr(attrs, "default"),
-            })
+            models[current_model].append(
+                {
+                    "name": name,
+                    "type": ftype,
+                    "optional": bool(optional),
+                    "attributes": attrs,
+                    "is_id": _has_attr(attrs, "id"),
+                    "is_updated_at": _has_attr(attrs, "updatedAt"),
+                    "has_default": _has_attr(attrs, "default"),
+                }
+            )
 
     return models
 
 
 def prisma_type_to_ts(ptype: str) -> str:
     return {
-        "String": "string", "Int": "number", "Float": "number",
-        "Boolean": "boolean", "DateTime": "string",
+        "String": "string",
+        "Int": "number",
+        "Float": "number",
+        "Boolean": "boolean",
+        "DateTime": "string",
     }.get(ptype, "string")
 
 
 # ---------------------------------------------------------------------------
 # DTO generator (deterministic)
 # ---------------------------------------------------------------------------
+
 
 def build_dto_class_body(model_name: str, fields: list[dict]) -> tuple[str, str]:
     """Generate (import_block, class_block) for a Create{Model}Dto."""
@@ -225,8 +220,7 @@ def build_dto_class_body(model_name: str, fields: list[dict]) -> tuple[str, str]
         ts_type = prisma_type_to_ts(prisma_type)
         optional_mark = "?" if is_optional else "!"
         comment_lines.append(
-            f" * - {f['name']}: {prisma_type}"
-            f"{' (optional)' if is_optional else ''}"
+            f" * - {f['name']}: {prisma_type}{' (optional)' if is_optional else ''}"
         )
 
         for d in decorators:
@@ -244,12 +238,8 @@ def build_dto_class_body(model_name: str, fields: list[dict]) -> tuple[str, str]
         f"/**\n"
         f" * {class_name} — generated from prisma/schema.prisma\n"
         f" *\n"
-        f" * Fields:\n"
-        + "\n".join(comment_lines) +
-        f" */\n"
-        f"export class {class_name} {{\n"
-        + "\n".join(prop_lines) +
-        f"}}"
+        f" * Fields:\n" + "\n".join(comment_lines) + f" */\n"
+        f"export class {class_name} {{\n" + "\n".join(prop_lines) + f"}}"
     )
 
     return import_block, class_block
@@ -259,12 +249,15 @@ def build_dto_class_body(model_name: str, fields: list[dict]) -> tuple[str, str]
 # Change detection (git-based)
 # ---------------------------------------------------------------------------
 
+
 def _git_run(args: list[str]) -> Optional[str]:
     """Run a git command in the nestjs project dir. Returns stdout or None."""
     try:
         result = subprocess.run(
             ["git", "-C", str(NESTJS_PROJ_DIR)] + args,
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if result.returncode == 0:
             return result.stdout
@@ -349,12 +342,16 @@ def build_schema_diff_summary(cached: str, current: str) -> str:
             lines.append(f"Model '{mn}' changes:")
             for a in sorted(added):
                 f = new_fields[a]
-                lines.append(f"  + added:   {a} ({f['type']}{'?' if f['optional'] else ''}"
-                             f"{' @default' if f['has_default'] else ''}"
-                             f"{' @id' if f['is_id'] else ''})")
+                lines.append(
+                    f"  + added:   {a} ({f['type']}{'?' if f['optional'] else ''}"
+                    f"{' @default' if f['has_default'] else ''}"
+                    f"{' @id' if f['is_id'] else ''})"
+                )
             for r in sorted(removed):
                 f = old_fields[r]
-                lines.append(f"  - removed: {r} ({f['type']}{'?' if f['optional'] else ''})")
+                lines.append(
+                    f"  - removed: {r} ({f['type']}{'?' if f['optional'] else ''})"
+                )
             for tc in type_changes:
                 lines.append(f"  ~ changed: {tc}")
 
@@ -365,6 +362,7 @@ def build_schema_diff_summary(cached: str, current: str) -> str:
 # DTO sync (deterministic)
 # ---------------------------------------------------------------------------
 
+
 def sync_dto_for_model(model_name: str) -> tuple[bool, str]:
     """Generate & write CreateDto + UpdateDto for a given Prisma model."""
     if not SCHEMA_PATH.exists():
@@ -374,7 +372,10 @@ def sync_dto_for_model(model_name: str) -> tuple[bool, str]:
     models = parse_prisma_schema(text)
 
     if model_name not in models:
-        return False, f"❌ Model '{model_name}' not found. Available: {list(models.keys())}"
+        return (
+            False,
+            f"❌ Model '{model_name}' not found. Available: {list(models.keys())}",
+        )
 
     fields = models[model_name]
     import_block, class_block = build_dto_class_body(model_name, fields)
@@ -435,6 +436,7 @@ def run_prisma_command(cmd: list[str], label: str) -> tuple[bool, str]:
         return True, f"✅ {label}\n{output}"
     else:
         return False, f"❌ {label} (exit {proc.returncode})\n{output}"
+
 
 # ===========================================================================
 #  Agent-based cross-file impact analysis
@@ -525,6 +527,7 @@ At the end of your analysis, output a summary:
 
 # --- Run the cross-file agent ---
 
+
 def run_cross_file_analysis(diff: str, cached_schema: str, current_schema: str) -> None:
     """Run the LLM agent to analyze cross-file impact of schema changes.
 
@@ -586,12 +589,18 @@ Report what you changed and any issues that need manual review."""
                     display_args = {}
                     for k, v in args.items():
                         if isinstance(v, str) and len(v) > 300:
-                            display_args[k] = v[:150] + f"\n... ({len(v)} chars total) ...\n" + v[-150:]
+                            display_args[k] = (
+                                v[:150]
+                                + f"\n... ({len(v)} chars total) ...\n"
+                                + v[-150:]
+                            )
                         else:
                             display_args[k] = v
                     print(f"     {name}({display_args})")
                 # Auto-approve in auto-sync mode
-                decisions = [{"type": "approve"} for _ in interrupt.value["action_requests"]]
+                decisions = [
+                    {"type": "approve"} for _ in interrupt.value["action_requests"]
+                ]
                 stream_input = Command(resume={"decisions": decisions})
             elif "messages" in step:
                 msg = step["messages"][-1]
@@ -609,9 +618,11 @@ Report what you changed and any issues that need manual review."""
     print("  ✅ Cross-file analysis complete.")
     print("-" * 60)
 
+
 # ===========================================================================
 #  Auto-sync pipeline
 # ===========================================================================
+
 
 def auto_sync_all() -> None:
     """Full automated pipeline:
@@ -660,9 +671,7 @@ def auto_sync_all() -> None:
     print("-" * 60)
     print("  ⚙  Step 3/3: Prisma commands")
     print("-" * 60)
-    ok, msg = run_prisma_command(
-        ["npx", "prisma", "generate"], "prisma generate"
-    )
+    ok, msg = run_prisma_command(["npx", "prisma", "generate"], "prisma generate")
     print(msg)
     print()
     if not ok:
@@ -688,121 +697,19 @@ def auto_sync_all() -> None:
         print("=" * 60)
         print("  ⚠ Migration step had issues. Check output above.")
         print("  Run this manually in your terminal:")
-        print(f"    cd {NESTJS_PROJ_DIR} && npx prisma migrate dev --name auto_sync --create-only")
+        print(
+            f"    cd {NESTJS_PROJ_DIR} && npx prisma migrate dev --name auto_sync --create-only"
+        )
         print("=" * 60)
-
-# ===========================================================================
-#  Interactive agent mode (--agent flag)
-# ===========================================================================
-
-INTERACTIVE_SYSTEM_PROMPT = """\
-You are an ORM Agent for a NestJS + Prisma project.
-
-## Your capabilities
-
-1. **Schema change detection** — `detect_schema_changes` to see if schema.prisma
-   changed, `read_prisma_schema` to get the current model structure.
-
-2. **DTO sync** — `sync_dto_with_schema('Product')` to deterministically
-   regenerate the Create DTO from the Prisma schema. ALWAYS use this for DTO
-   updates — never write DTOs manually.
-
-3. **Cross-file impact analysis** — when schema fields change, use
-   `search_in_product` to find all references, `read_product_file` to see
-   context, and `write_product_file` to apply fixes to service/controller.
-
-4. **Prisma commands** — `run_npm_script('prisma:generate')` and
-   `run_npm_script('prisma:migrate:dev')`.
-
-## Workflow for a full sync
-
-1. `detect_schema_changes` — check what changed
-2. `read_prisma_schema` — get current model structure
-3. `sync_dto_with_schema` — regenerate DTOs (deterministic)
-4. For each changed field: `search_in_product` → `read_product_file` → fix → `write_product_file`
-5. `run_npm_script('prisma:generate')` — rebuild Prisma client
-6. `run_npm_script('prisma:migrate:dev')` — create migration (only if structural changes)
-
-Be concise. Explain each change before making it.
-"""
-
-
-def run_agent_mode() -> None:
-    """Interactive LangChain agent with HumanInTheLoopMiddleware."""
-    tools = ALL_TOOLS
-
-    agent = create_agent(
-        create_llm(), tools, system_prompt=INTERACTIVE_SYSTEM_PROMPT,
-        middleware=[
-            HumanInTheLoopMiddleware(
-                interrupt_on={
-                    "sync_dto_with_schema": True,
-                    "write_product_file": True,
-                    "run_npm_script": True,
-                },
-                description_prefix="Tool execution pending approval",
-            ),
-        ],
-        checkpointer=InMemorySaver(),
-    )
-
-    print("\n" + "=" * 60)
-    print("  ORM Agent — interactive mode")
-    print("  Type 'quit' to exit")
-    print("  Try: 'check for schema changes and sync everything'")
-    print("=" * 60 + "\n")
-
-    config = {"configurable": {"thread_id": "orm-agent-1"}}
-
-    while True:
-        try:
-            user_input = input("\n🧑 You: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\n👋 Goodbye.")
-            break
-        if user_input.lower() in ("quit", "exit"):
-            print("👋 Goodbye.")
-            break
-        if not user_input:
-            continue
-
-        stream_input: dict = {"messages": [{"role": "user", "content": user_input}]}
-        while True:
-            interrupted = False
-            for step in agent.stream(stream_input, config, stream_mode="values"):
-                if "__interrupt__" in step:
-                    interrupted = True
-                    print("\n" + "=" * 60)
-                    print("  ⏸  INTERRUPTED — Tool pending approval")
-                    print("=" * 60)
-                    interrupt = step["__interrupt__"][0]
-                    for i, req in enumerate(interrupt.value["action_requests"]):
-                        display_args = {}
-                        for k, v in req["args"].items():
-                            s = str(v)
-                            display_args[k] = (s[:200] + "...") if len(s) > 200 else s
-                        print(f"\n  #{i + 1}: {req['name']}({display_args})")
-                    choice = input("\n  Approve? (y/n): ").strip().lower()
-                    decisions = [
-                        {"type": "approve" if choice == "y" else "reject"}
-                        for _ in interrupt.value["action_requests"]
-                    ]
-                    stream_input = Command(resume={"decisions": decisions})
-                elif "messages" in step:
-                    step["messages"][-1].pretty_print()
-            if not interrupted:
-                break
 
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def main():
-    if "--agent" in sys.argv:
-        run_agent_mode()
-    else:
-        auto_sync_all()
+    auto_sync_all()
 
 
 if __name__ == "__main__":
