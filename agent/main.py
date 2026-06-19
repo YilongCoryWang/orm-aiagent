@@ -753,24 +753,26 @@ def auto_sync_all() -> None:
         print("⚠ Prisma generate failed — skipping migration.")
         return
 
-    # Step 6: prisma migrate dev
+    # Step 6: prisma migrate dev --create-only (generate SQL for review, don't apply)
     ok, msg = run_prisma_command(
-        ["npx", "prisma", "migrate", "dev", "--name", "auto_sync"],
-        "prisma migrate dev --name auto_sync",
+        ["npx", "prisma", "migrate", "dev", "--name", "auto_sync", "--create-only"],
+        "prisma migrate dev --name auto_sync --create-only",
     )
     print(msg)
     print()
 
     if ok:
         print("=" * 60)
-        print("  ✅ Auto-sync complete.")
-        print("     Review changes above and migration SQL in prisma/migrations/")
+        print("  ✅ Migration SQL generated for review.")
+        print("     Review/edit the SQL in prisma/migrations/<timestamp>_auto_sync/")
+        print("     Then apply it manually:")
+        print(f"    cd {NESTJS_PROJ_DIR} && npx prisma migrate dev")
         print("=" * 60)
     else:
         print("=" * 60)
         print("  ⚠ Migration step had issues. Check output above.")
         print("  Run this manually in your terminal:")
-        print(f"    cd {NESTJS_PROJ_DIR} && npx prisma migrate dev --name auto_sync")
+        print(f"    cd {NESTJS_PROJ_DIR} && npx prisma migrate dev --name auto_sync --create-only")
         print("=" * 60)
 
 # ===========================================================================

@@ -48,19 +48,19 @@ export class ProductService {
   // If a field is renamed (e.g. quantity → stock), the Agent must find and
   // update every reference in these methods — that's the value of the LLM.
 
-  /** Find products with quantity > 0.  References field: quantity */
+  /** Find products with stock > 0.  References field: stock */
   async findInStock(): Promise<Product[]> {
     return this.prisma.product.findMany({
-      where: { quantity: { gt: 0 } },
+      where: { stock: { gt: 0 } },
     });
   }
 
-  /** Increment a product's quantity.  References field: quantity */
+  /** Increment a product's stock.  References field: stock */
   async restockProduct(id: number, amount: number): Promise<Product> {
     await this.findOne(id);
     return this.prisma.product.update({
       where: { id },
-      data: { quantity: { increment: amount } },
+      data: { stock: { increment: amount } },
     });
   }
 
