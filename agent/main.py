@@ -527,14 +527,14 @@ At the end of your analysis, output a summary:
 # --- Run the cross-file agent ---
 
 
-def run_cross_file_analysis(diff: str, cached_schema: str, current_schema: str) -> None:
+def run_cross_file_analysis(diff: str, prev_schema: str, current_schema: str) -> None:
     """Run the LLM agent to analyze cross-file impact of schema changes.
 
     The agent searches src/product/ for affected code in Service, Controller,
     and Module files, then applies necessary fixes.
     """
     # Build a structured summary of what changed
-    change_summary = build_schema_diff_summary(cached_schema, current_schema)
+    change_summary = build_schema_diff_summary(prev_schema, current_schema)
 
     cross_file_tools = CROSS_FILE_TOOLS
 
@@ -643,7 +643,7 @@ def auto_sync_all() -> None:
     print()
 
     # Get previous schema from git HEAD for diff summary
-    cached_schema = get_previous_schema() or ""
+    prev_schema = get_previous_schema() or ""
     current_schema = SCHEMA_PATH.read_text()
 
     # Step 2: Parse schema and identify models
@@ -664,7 +664,7 @@ def auto_sync_all() -> None:
     print("-" * 60)
     print("  🤖 Step 2/3: Cross-file analysis (Agent)")
     print("-" * 60)
-    run_cross_file_analysis(diff, cached_schema, current_schema)
+    run_cross_file_analysis(diff, prev_schema, current_schema)
 
     # Step 5: prisma generate
     print("-" * 60)
