@@ -674,7 +674,26 @@ def auto_sync_all() -> None:
     print(msg)
     print()
     if not ok:
-        print("⚠ Prisma generate failed — skipping migration.")
+        print("⚠ Prisma generate failed — skipping validation and migration.")
+        return
+
+    # Step 5.5: TypeScript compilation check (validate agent's code changes
+    # against the freshly generated Prisma Client types)
+    print("-" * 60)
+    print("  🔍 TypeScript validation")
+    print("-" * 60)
+    ok, msg = run_prisma_command(
+        ["npx", "tsc", "--noEmit"],
+        "tsc --noEmit",
+    )
+    print(msg)
+    print()
+    if not ok:
+        print("=" * 60)
+        print("  ⚠ TypeScript compilation failed after agent changes.")
+        print("     Fix the errors above before proceeding to migration.")
+        print("     (migration skipped)")
+        print("=" * 60)
         return
 
     # Step 6: prisma migrate dev --create-only (generate SQL for review, don't apply)
