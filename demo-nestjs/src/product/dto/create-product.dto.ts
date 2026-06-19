@@ -9,7 +9,7 @@ import { Type } from 'class-transformer';
  * - description: String (optional)
  * - price: Float
  * - category: String
- * - stock: Int (optional)
+ * - quantity: Int (optional)
  * - createdAt: DateTime (optional) */
 export class CreateProductDto {
   @IsString()
@@ -36,7 +36,7 @@ export class CreateProductDto {
   @IsOptional()
   @IsInt()
   @Min(0)
-  stock?: number;
+  quantity?: number;
 
   @IsOptional()
   @IsDateString()

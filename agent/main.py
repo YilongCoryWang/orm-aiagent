@@ -32,6 +32,7 @@ Architecture:
 from dotenv import load_dotenv
 import os
 import subprocess
+import signal
 import re
 import sys
 import pathlib
@@ -272,14 +273,14 @@ def detect_changes() -> Optional[str]:
     current = SCHEMA_PATH.read_text()
     cached = get_cached_schema()
 
-    if cached is None:
-        save_schema_cache(current)
-        print("📝 First run — schema cached as baseline. No changes to process.")
-        return None
+    # if cached is None:
+    #     save_schema_cache(current)
+    #     print("📝 First run — schema cached as baseline. No changes to process.")
+    #     return None
 
-    if current == cached:
-        print("✅ No schema changes detected (cache comparison).")
-        return None
+    # if current == cached:
+    #     print("✅ No schema changes detected (cache comparison).")
+    #     return None
 
     diff_lines = ["--- cached schema", "+++ current schema"]
     for line in cached.splitlines():
@@ -405,15 +406,32 @@ def sync_dto_for_model(model_name: str) -> tuple[bool, str]:
 
 
 def run_prisma_command(cmd: list[str], label: str) -> tuple[bool, str]:
-    """Run a prisma CLI command. Returns (success, output)."""
-    result = subprocess.run(
-        cmd, capture_output=True, text=True, cwd=str(NESTJS_PROJ_DIR), timeout=120,
+    """Run a prisma CLI command. Returns (success, output).
+
+    Uses start_new_session=True so that on timeout we can kill the entire
+    process group — npx spawns child node/schema-engine processes that
+    subprocess.run would orphan, leaving them holding DB advisory locks.
+    """
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=str(NESTJS_PROJ_DIR),
+        start_new_session=True,  # child becomes process-group leader
     )
-    output = (result.stdout.strip() + "\n" + result.stderr.strip()).strip()
-    if result.returncode == 0:
+    try:
+        stdout, stderr = proc.communicate(timeout=120)
+    except subprocess.TimeoutExpired:
+        # Kill the entire process group (npx → node → schema-engine)
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        proc.wait()
+        return False, f"❌ {label} (timed out after 120s, process group killed)"
+    output = (stdout.strip() + "\n" + stderr.strip()).strip()
+    if proc.returncode == 0:
         return True, f"✅ {label}\n{output}"
     else:
-        return False, f"❌ {label} (exit {result.returncode})\n{output}"
+        return False, f"❌ {label} (exit {proc.returncode})\n{output}"
 
 # ===========================================================================
 #  Agent-based cross-file impact analysis
@@ -751,6 +769,8 @@ def auto_sync_all() -> None:
     else:
         print("=" * 60)
         print("  ⚠ Migration step had issues. Check output above.")
+        print("  Run this manually in your terminal:")
+        print(f"    cd {NESTJS_PROJ_DIR} && npx prisma migrate dev --name auto_sync")
         print("=" * 60)
 
 # ===========================================================================

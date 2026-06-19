@@ -5,7 +5,7 @@ CREATE TABLE "Product" (
     "description" TEXT,
     "price" DOUBLE PRECISION NOT NULL,
     "category" TEXT NOT NULL,
-    "inStock" BOOLEAN NOT NULL DEFAULT true,
+    "quantity" INTEGER NOT NULL DEFAULT 0,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
