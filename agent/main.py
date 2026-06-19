@@ -5,7 +5,6 @@ and fix cross-file impacts in Service / Controller / Module.
 
 Usage:
     python main.py              # Auto-sync: detect → DTO → agent cross-file → migrate
-    python main.py --agent      # Interactive LangChain agent mode
 
 Architecture:
     ┌─ Deterministic ──────────────────────────────────────────┐

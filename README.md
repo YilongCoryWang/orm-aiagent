@@ -84,7 +84,6 @@ echo 'DEEPSEEK_API_KEY=sk-xxx' >> .env
 
 # 4. Change schema.prisma, then:
 uv run main.py          # auto-sync: all 6 steps, zero interaction
-uv run main.py --agent  # interactive chat mode with approval gates
 ```
 
 ## Try it
@@ -139,8 +138,7 @@ agent/tools/
 └── run_npm_script.py          # Run prisma generate / migrate / studio
 ```
 
-**Cross-file tools** (used in auto-sync mode): `search_in_product`, `read_product_file`, `write_product_file`  
-**Interactive tools** (used in `--agent` mode): all 7 tools above
+**Cross-file tools** (used in auto-sync mode): `search_in_product`, `read_product_file`, `write_product_file`
 
 ### Migration: review before apply
 
